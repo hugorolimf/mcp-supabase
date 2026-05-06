@@ -19,8 +19,12 @@ DECLARE
   v_clean_query TEXT;
   v_first_word TEXT;
 BEGIN
-  -- Remove todos os whitespace do início/fim (espaços, \n, \t, \r)
-  v_clean_query := trim(both E' \n\r\t' from p_query);
+  -- 1) Remove comentários de bloco /* ... */
+  v_clean_query := regexp_replace(p_query, '/\*.*?\*/', '', 'g');
+  -- 2) Remove comentários de linha -- ...
+  v_clean_query := regexp_replace(v_clean_query, '--[^\n]*', '', 'g');
+  -- 3) Remove whitespace do início/fim (espaços, \n, \t, \r)
+  v_clean_query := trim(both E' \n\r\t' from v_clean_query);
   v_first_word := upper(split_part(v_clean_query, ' ', 1));
 
   IF v_first_word IN ('SELECT', 'WITH') THEN

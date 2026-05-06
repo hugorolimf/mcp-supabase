@@ -393,10 +393,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // execute_sql
   // ═══════════════════════════════════════════════════════════
   if (name === 'execute_sql') {
-    const query = args.query?.trim();
+    let query = args.query;
     if (!query || typeof query !== 'string') {
       return errorResponse('❌ ERRO: query é obrigatória.');
     }
+
+    // Remove comentários SQL do início (defesa para a função Postgres)
+    query = query
+      .replace(/\/\*[\s\S]*?\*\//g, '')   // bloco /* ... */
+      .replace(/--[^\n]*/g, '')             // linha -- ...
+      .trim();
 
     try {
       const { data, error } = await supabase.rpc('execute_sql', { p_query: query });
