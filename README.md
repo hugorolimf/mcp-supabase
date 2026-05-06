@@ -1,6 +1,6 @@
-# MCP Server — Supabase SQL Executor
+# MCP Server — Supabase SQL + Edge Functions
 
-Servidor MCP genérico para executar SQL em qualquer instância Supabase (cloud ou self-hosted).
+Servidor MCP para executar SQL no Supabase e gerenciar Edge Functions via SSH na VPS.
 
 ## Pré-requisitos no banco
 
@@ -16,26 +16,33 @@ AS $$
 DECLARE
   rec RECORD;
   rows_json JSONB := '[]'::JSONB;
+  v_clean_query TEXT;
+  v_first_word TEXT;
 BEGIN
-  IF trim(upper(left(p_query, 6))) = 'SELECT' THEN
+  -- Remove todos os whitespace do início/fim (espaços, \n, \t, \r)
+  v_clean_query := trim(both E' \n\r\t' from p_query);
+  v_first_word := upper(split_part(v_clean_query, ' ', 1));
+
+  IF v_first_word IN ('SELECT', 'WITH') THEN
     FOR rec IN EXECUTE p_query LOOP
       rows_json := rows_json || to_jsonb(rec);
     END LOOP;
     RETURN jsonb_build_object(
-      'command', 'SELECT',
+      'command', v_first_word,
       'rowCount', jsonb_array_length(rows_json),
       'rows', rows_json
     );
   END IF;
+
   EXECUTE p_query;
   RETURN jsonb_build_object(
-    'command', trim(upper(left(p_query, 6))),
+    'command', v_first_word,
     'success', true,
     'message', 'Query executada com sucesso'
   );
 EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object(
-    'command', trim(upper(left(p_query, 6))),
+    'command', v_first_word,
     'success', false,
     'error', SQLERRM,
     'detail', SQLSTATE
@@ -74,6 +81,13 @@ SUPABASE_SERVICE_KEY=sua-service-role-key
 | `list_tables` | Lista tabelas do schema `public` |
 | `describe_table` | Retorna colunas e tipos de uma tabela |
 | `query_table` | SELECT * com limite de 100 linhas |
+| `list_edge_functions` | Lista Edge Functions deployadas na VPS |
+| `deploy_edge_function` | Deploya código passado como string |
+| `deploy_local_edge_function` | **Lê arquivo local e deploya** (recomendado) |
+| `delete_edge_function` | Remove uma Edge Function |
+| `get_edge_function_logs` | Logs do container functions |
+| `restart_edge_functions` | Reinicia o serviço functions |
+| `invoke_edge_function` | Invoca via HTTP POST para testar |
 
 ## Conectar no Kimi / Claude / Cursor
 

@@ -350,6 +350,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['name'],
       },
     },
+    {
+      name: 'deploy_local_edge_function',
+      description:
+        'Lê uma Edge Function do filesystem local e faz deploy na VPS. ' +
+        'Útil para deployar código que foi criado/editado localmente no projeto.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Nome da função (ex: hello, create-mentor)',
+          },
+          local_path: {
+            type: 'string',
+            description: 'Caminho absoluto do arquivo index.ts local (ex: C:\\projeto\\supabase\\functions\\hello\\index.ts)',
+          },
+          restart: {
+            type: 'boolean',
+            description: 'Reiniciar o serviço functions após deploy (default: true)',
+            default: true,
+          },
+        },
+        required: ['name', 'local_path'],
+      },
+    },
   ],
 }));
 
@@ -368,7 +393,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // execute_sql
   // ═══════════════════════════════════════════════════════════
   if (name === 'execute_sql') {
-    const query = args.query;
+    const query = args.query?.trim();
     if (!query || typeof query !== 'string') {
       return errorResponse('❌ ERRO: query é obrigatória.');
     }
@@ -610,6 +635,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // deploy_local_edge_function
+  // ═══════════════════════════════════════════════════════════
+  if (name === 'deploy_local_edge_function') {
+    const funcName = args.name;
+    const localPath = args.local_path;
+    const shouldRestart = args.restart !== false;
+
+    if (!funcName || !localPath) {
+      return errorResponse('❌ ERRO: name e local_path são obrigatórios.');
+    }
+    if (funcName === 'main') {
+      return errorResponse('❌ ERRO: não é permitido sobrescrever a função main.');
+    }
+
+    let code;
+    try {
+      code = readFileSync(localPath, 'utf8');
+    } catch (err) {
+      return errorResponse(`❌ ERRO ao ler arquivo local: ${err.message}`);
+    }
+
+    try {
+      const dirPath = `${DOCKER_PATH}/volumes/functions/${funcName}`;
+      const filePath = `${dirPath}/index.ts`;
+
+      await sshExec(`mkdir -p "${dirPath}"`);
+      await sshWriteFile(code, filePath);
+
+      let restartOutput = '';
+      if (shouldRestart) {
+        const { stdout, stderr, code: rc } = await sshExec(
+          `cd "${DOCKER_PATH}" && docker compose restart functions --no-deps`
+        );
+        restartOutput = `\n\n🔄 Serviço reiniciado:\n${stdout}\n${stderr}`;
+        if (rc !== 0) {
+          restartOutput += '\n⚠️ Aviso: reinício pode ter falhado.';
+        }
+      }
+
+      return okResponse(
+        `✅ Função "${funcName}" deployada a partir de "${localPath}".${restartOutput}`
+      );
+    } catch (err) {
+      return errorResponse(`❌ ERRO no deploy: ${err.message}`);
+    }
+  }
+
   return errorResponse(`❌ Ferramenta desconhecida: ${name}`);
 });
 
@@ -623,7 +696,7 @@ async function main() {
   console.error(`   Instância: ${INSTANCE_NAME} (${SUPABASE_URL})`);
   console.error('   Ferramentas DB: execute_sql, list_tables, describe_table, query_table');
   console.error(
-    '   Ferramentas Edge: list_edge_functions, deploy_edge_function, delete_edge_function, get_edge_function_logs, restart_edge_functions, invoke_edge_function'
+    '   Ferramentas Edge: list_edge_functions, deploy_edge_function, deploy_local_edge_function, delete_edge_function, get_edge_function_logs, restart_edge_functions, invoke_edge_function'
   );
 }
 
