@@ -158,6 +158,30 @@ function sshWriteFile(content, remotePath) {
   });
 }
 
+function sshReadFile(remotePath) {
+  return new Promise((resolve, reject) => {
+    const conn = new SSHClient();
+    const cfg = getSSHConfig();
+
+    conn
+      .on('ready', () => {
+        conn.sftp((err, sftp) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+          sftp.readFile(remotePath, 'utf8', (err, data) => {
+            conn.end();
+            if (err) return reject(err);
+            resolve(data);
+          });
+        });
+      })
+      .on('error', reject)
+      .connect(cfg);
+  });
+}
+
 function sshRmdir(remotePath, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const conn = new SSHClient();
@@ -373,6 +397,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ['name', 'local_path'],
+      },
+    },
+    {
+      name: 'read_edge_function',
+      description:
+        'Lê o código fonte (index.ts) de uma Edge Function existente na VPS. ' +
+        'Retorna o conteúdo completo do arquivo.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Nome da função (ex: hello, periodos-letivos)',
+          },
+        },
+        required: ['name'],
       },
     },
   ],
@@ -689,6 +729,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // read_edge_function
+  // ═══════════════════════════════════════════════════════════
+  if (name === 'read_edge_function') {
+    const funcName = args.name;
+
+    if (!funcName || typeof funcName !== 'string') {
+      return errorResponse('❌ ERRO: name é obrigatório.');
+    }
+    if (funcName === 'main') {
+      return errorResponse('❌ ERRO: não é permitido ler a função main.');
+    }
+
+    try {
+      const filePath = `${DOCKER_PATH}/volumes/functions/${funcName}/index.ts`;
+      const code = await sshReadFile(filePath);
+      return okResponse(`// ${funcName}/index.ts\n\n${code}`);
+    } catch (err) {
+      return errorResponse(`❌ ERRO ao ler função: ${err.message}`);
+    }
+  }
+
   return errorResponse(`❌ Ferramenta desconhecida: ${name}`);
 });
 
@@ -702,7 +764,7 @@ async function main() {
   console.error(`   Instância: ${INSTANCE_NAME} (${SUPABASE_URL})`);
   console.error('   Ferramentas DB: execute_sql, list_tables, describe_table, query_table');
   console.error(
-    '   Ferramentas Edge: list_edge_functions, deploy_edge_function, deploy_local_edge_function, delete_edge_function, get_edge_function_logs, restart_edge_functions, invoke_edge_function'
+    '   Ferramentas Edge: list_edge_functions, deploy_edge_function, deploy_local_edge_function, read_edge_function, delete_edge_function, get_edge_function_logs, restart_edge_functions, invoke_edge_function'
   );
 }
 
