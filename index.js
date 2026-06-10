@@ -400,6 +400,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'deploy_local_function',
+      description:
+        'Lê um arquivo SQL local (função RPC Postgres) e executa no banco via execute_sql. ' +
+        'Útil para deployar funções PL/pgSQL armazenadas em arquivos .sql.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          local_path: {
+            type: 'string',
+            description: 'Caminho absoluto do arquivo .sql local (ex: C:\\projeto\\supabase\\functions\\dash_get_alunos_flat.sql)',
+          },
+        },
+        required: ['local_path'],
+      },
+    },
+    {
       name: 'read_edge_function',
       description:
         'Lê o código fonte (index.ts) de uma Edge Function existente na VPS. ' +
@@ -726,6 +742,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       );
     } catch (err) {
       return errorResponse(`❌ ERRO no deploy: ${err.message}`);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // deploy_local_function
+  // ═══════════════════════════════════════════════════════════
+  if (name === 'deploy_local_function') {
+    const localPath = args.local_path;
+
+    if (!localPath || typeof localPath !== 'string') {
+      return errorResponse('❌ ERRO: local_path é obrigatório.');
+    }
+
+    let sql;
+    try {
+      sql = readFileSync(localPath, 'utf8');
+    } catch (err) {
+      return errorResponse(`❌ ERRO ao ler arquivo local: ${err.message}`);
+    }
+
+    // Remove comentários SQL do início (defesa para a função Postgres)
+    sql = sql
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/--[^\n]*/g, '')
+      .trim();
+
+    try {
+      const { data, error } = await supabase.rpc('execute_sql', { p_query: sql });
+      if (error) throw error;
+      return okResponse(
+        `✅ Função RPC deployada com sucesso a partir de "${localPath}".\n\nResultado:\n${JSON.stringify(data, null, 2)}`
+      );
+    } catch (err) {
+      return errorResponse(`❌ ERRO no deploy:\n${err.message}\n\nSQL:\n${sql}`);
     }
   }
 
